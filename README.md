@@ -44,3 +44,22 @@ Let's define its responsibilities as five capabilities.
 
 *the AI should not simply generate a plausible explanation. It should investigate actual data and support its conclusions with evidence.*
 
+
+# functional responsbility
+
+1. Receive application logs and metrics (Telemetry) from external applications.
+
+   Requirements:
+
+   - Accepts telemetry from external source via HTTP APIs.
+   - Validate incoming events from defined event schema.
+   - Support structured log and metric events.
+   - Attach metadata such as service name, environment,timestamp and severity.
+   - Rejection of malformed events.
+   - Support batch ingestion.
+   - Publish accepted events to kafka.
+   - Persist telemetry in clickhouse for investigation and querying.
+
+2. System must process incomming event telemetry asynchronously 
+
+# non functional responsibility
