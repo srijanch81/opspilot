@@ -1,240 +1,194 @@
-# opspilot
+# OpsPilot
 
-## overview
+**OpsPilot** is an operations assistant for production systems. When something breaks, it should **detect** the problem, **open an incident**, **dig through real logs and metrics**, and give engineers an **evidence-backed** explanation—not a guess.
 
-When a production system starts behaving abnormally, OpsPilot should detect the problem, create an incident, investigate the available operational data, and provide engineers with an evidence-backed explanation of what might have gone wrong.
+> **Design principle:** The AI must investigate actual data and cite evidence. Plausible stories without proof are out of scope.
 
-## scenario
+---
 
-Imagine you operate an e-commerce application.
+## Contents
 
-Your application has:
-- User service
-- Payment service
-- Order service
-- Inventory service
-- Notification service
-At 2:00 PM, users start reporting that payments are failing.
+| Section | What you’ll learn |
+|---------|-------------------|
+| [The problem](#the-problem) | Why this exists |
+| [What OpsPilot does](#what-opspilot-does) | Five capabilities at a glance |
+| [How it fits together](#how-it-fits-together) | End-to-end flow |
+| [Functional requirements](#functional-requirements) | What the system must do (behavior, not just tech names) |
+| [Non-functional requirements](#non-functional-requirements) | Performance, security, quality bar |
+| [MVP priorities](#mvp-priorities) | What to build first |
+| [Services](#services) | The four main components |
+| [More docs](#more-docs) | Deeper references |
 
-Today, an engineer might have to:
-1. Notice an alert or customer complaint.
-2. Open Grafana or another monitoring dashboard.
-3. Search application logs.
-4. Check metrics for error rates and latency.
-5. Look at recent deployments.
-6. Correlate events across multiple services.
-7. Identify the likely root cause.
-8. Create and update an incident.
-9. Communicate findings to the team.
-This process can be time-consuming, especially when information is spread across different tools.
+---
 
-*OpsPilot aims to automate and simplify parts of this process.*
+## The problem
 
-## responsbilities
+Picture an e-commerce app with **user**, **payment**, **order**, **inventory**, and **notification** services.
 
-Let's define its responsibilities as five capabilities.
+**At 2:00 PM**, customers report that payments are failing.
 
-| Capability | What it does | Example |
-|---|---|---|
-| 1. Data collection | Collects logs and metrics from applications | Receives payment-service errors |
-| 2. Incident detection | Evaluates incoming data against alert rules | Detects payment failure rate above 10% |
-| 3. Incident management | Creates and tracks incidents | Opens a Payment Service incident |
-| 4. AI investigation | Investigates logs, metrics, and deployment history | Finds that failures started after a recent deployment |
-| 5. Root-cause summary | Produces an explanation with supporting evidence | Reports that a recent deployment may have introduced the failure |
+A typical on-call engineer today might:
 
-*the AI should not simply generate a plausible explanation. It should investigate actual data and support its conclusions with evidence.*
+1. Notice an alert or complaint  
+2. Open Grafana (or similar)  
+3. Search logs across services  
+4. Check error rates and latency  
+5. Review recent deploys  
+6. Correlate events by hand  
+7. Hypothesize a root cause  
+8. Create and update an incident  
+9. Brief the team  
 
+That work is slow when signals live in **different tools**.
 
-## functional responsibility
+**OpsPilot** automates and simplifies parts of that workflow—especially detection, incident tracking, and data-backed investigation.
 
-Plain-language requirements for what the system must do. Technical terms (Kafka, ClickHouse, OAuth2, and so on) name the chosen building blocks; the behavior below is what matters.
+---
 
-1. **Collect logs and metrics from other applications** (telemetry).
+## What OpsPilot does
 
-   Other services send operational data into OpsPilot so it can be stored, searched, and used for alerts and investigations.
+Five capabilities define the product:
 
-   Requirements:
+| # | Capability | In plain terms | Example |
+|---|------------|----------------|---------|
+| 1 | **Data collection** | Pull in logs and metrics from your apps | Payment-service errors arrive in OpsPilot |
+| 2 | **Incident detection** | Compare live data to alert rules | Payment failure rate &gt; 10% |
+| 3 | **Incident management** | One place to track outages | “Payment Service” incident opened |
+| 4 | **AI investigation** | Search logs, metrics, deploy history | Failures started right after a deploy |
+| 5 | **Root-cause summary** | Explain what might be wrong, with proof | Summary links to logs and metrics |
 
-   - Accept telemetry over HTTP from external applications.
-   - Reject data that does not match the agreed event format; accept only well-formed events.
-   - Support both log-style messages and numeric metrics.
-   - Require useful labels on each event: which service, which environment (e.g. production), when it happened, and how serious it is.
-   - Allow sending many events in one request (batch ingestion).
-   - After validation, hand off accepted events to Kafka for background processing.
-   - Store accepted telemetry in ClickHouse so people and the AI can query it later.
+---
 
-2. **Process incoming telemetry in the background** (asynchronously).
+## How it fits together
 
-   Ingestion should stay fast; heavy work happens on workers, not in the request that received the data.
+High-level path from telemetry to an engineer-ready summary:
 
-   Requirements:
+```mermaid
+flowchart LR
+  A[Apps send telemetry] --> B[Collector]
+  B --> C[Kafka workers]
+  C --> D[ClickHouse]
+  C --> E[Alert engine]
+  E --> F[Incident API]
+  F --> G[Investigation agent]
+  G --> H[Evidence-backed summary]
+```
 
-   - Read events from Kafka and process them on separate workers.
-   - Do not block incident investigation or APIs while telemetry is being processed.
-   - When a downstream step fails, retry where it makes sense instead of dropping data silently.
-   - Treat duplicate deliveries safely so the same event twice does not corrupt state.
-   - Send events that cannot be processed to a dead-letter queue (DLQ) for later inspection.
-   - Keep the original timestamp and metadata on every event end to end.
+**In order:**
 
-3. **Let users define and manage alert rules** (“when should we worry?”).
+1. Services **send** logs/metrics (HTTP).  
+2. **Collector** validates and forwards to **Kafka**; data lands in **ClickHouse**.  
+3. **Alert engine** evaluates rules and raises alerts.  
+4. **Incident API** turns alerts into tracked incidents (OAuth2, teams, audit).  
+5. **Investigation agent** uses bounded tools (search logs, query metrics, list deploys) and attaches results to the incident.
 
-   Engineers configure rules that describe unhealthy conditions (for example, too many payment errors).
+Technical building blocks (Kafka, ClickHouse, OAuth2, etc.) are choices for implementation—the **behaviors** below are what matter.
 
-   Requirements:
+---
 
-   - Create, update, read, and delete alert rules.
-   - Base rules on metric values or on how many matching events occurred in a period.
-   - Set a threshold (e.g. above 10%) and a time window over which to measure (e.g. last 5 minutes).
-   - Turn rules on or off without deleting them.
-   - Tie each rule to a specific service and environment.
+## Functional requirements
 
-   Example:
+Requirements are grouped so you can read one area at a time. Terms like *Kafka* or *ClickHouse* name the proposed stack; focus on *what* must happen.
 
-   ```
-   name: payment-error-rate
-   service: payment-service
-   metric: http_5xx_error_rate
-   condition: greater_than
-   threshold: 10
-   evaluation_window: 5m
-   severity: critical
-   ```
+### A. Telemetry: ingest and process
 
-4. **Continuously check live telemetry against alert rules** (alert engine).
+| # | Area | Must do |
+|---|------|---------|
+| **1** | **Collect logs and metrics** | Accept HTTP telemetry from other apps; reject malformed events; support logs and metrics; require labels (service, environment, time, severity); allow batches; after validation, publish to Kafka and store in ClickHouse. |
+| **2** | **Process asynchronously** | Workers consume from Kafka; don’t block APIs; retry sensibly; handle duplicates safely; dead-letter bad events; preserve timestamps and metadata end to end. |
 
-   The system watches incoming data and raises or clears alerts when rules say so.
+### B. Alerting: rules and evaluation
 
-   Requirements:
+| # | Area | Must do |
+|---|------|---------|
+| **3** | **Alert rules** | CRUD rules based on metrics or event counts; threshold + time window; enable/disable; scope by service and environment. |
 
-   - Evaluate rules on an ongoing basis as new telemetry arrives.
-   - Support “value above/below a threshold over a time window” style conditions.
-   - Notice when a situation goes from normal to alerting, and back to normal.
-   - Do not spam repeated alerts for the same ongoing problem; one logical episode should not flood the channel.
-   - Clear or resolve alerts when the condition is healthy again.
-   - Record which service and environment each alert belongs to.
+**Example rule:**
 
-5. **Turn alerts into incidents** (tracked outages or issues).
+```yaml
+name: payment-error-rate
+service: payment-service
+metric: http_5xx_error_rate
+condition: greater_than
+threshold: 10
+evaluation_window: 5m
+severity: critical
+```
 
-   When rules fire, OpsPilot opens or updates an incident so the team has a single place to coordinate.
+| # | Area | Must do |
+|---|------|---------|
+| **4** | **Alert engine** | Continuously evaluate rules; detect firing and recovery; avoid alert spam for one ongoing issue; record service and environment. |
 
-   Requirements:
+### C. Incidents and API
 
-   - Automatically open an incident when an alert meets the criteria for one.
-   - Attach new related alerts to an existing incident when it is the same underlying issue.
-   - Avoid opening multiple incidents for one continuing outage.
-   - Set how severe the incident is and which service is affected.
-   - Support status changes through the incident lifecycle.
-   - Keep a timeline of what happened and when.
-   - Record important actions taken during the incident.
+| # | Area | Must do |
+|---|------|---------|
+| **5** | **Incidents from alerts** | Auto-open incidents; attach related alerts to one issue; avoid duplicate incidents for one outage; severity and service; lifecycle and timeline; log key actions. |
 
-   ```
-     OPEN
-      |
-      v
-   ACKNOWLEDGED
-      |
-      v
-   RESOLVED
-   ```
+**Lifecycle:**
 
-6. **Expose APIs for incident management** (Spring Boot application).
+```
+OPEN → ACKNOWLEDGED → RESOLVED
+```
 
-   Engineers and tools interact with incidents, teams, and on-call through a secured HTTP API.
+| # | Area | Must do |
+|---|------|---------|
+| **6** | **Incident API** (Spring Boot) | CRUD/list/filter incidents with linked alerts; acknowledge/resolve; teams and on-call; OAuth2 + RBAC; audit trail. |
 
-   Requirements:
+### D. AI investigation
 
-   - Create and fetch individual incidents.
-   - List incidents with filters and page through large lists.
-   - Show incident details together with linked alerts.
-   - Mark incidents as acknowledged or resolved.
-   - Manage teams and on-call schedules.
-   - Sign users in with OAuth2 and restrict actions by role (RBAC).
-   - Keep an audit trail of who changed what.
+| # | Area | Must do |
+|---|------|---------|
+| **7** | **Controlled data access** | Agent uses defined tools only (no raw DB): search logs, query metrics, list deploys—with limits and timeouts. |
+| **8** | **Run investigations** | Start from an incident; load context; correlate logs, metrics, deploys; suggest causes with confidence; separate **observations** vs **hypotheses**; say when evidence is missing. |
 
-7. **Give the AI investigator controlled access to operational data** (tools, not raw database access).
+**Example investigation output:**
 
-   The investigation agent may only use defined operations so queries stay safe and bounded.
+```json
+{
+  "incident_id": "INC-1001",
+  "summary": "Payment API error rate increased significantly.",
+  "observations": [
+    "HTTP 5xx errors increased from 1% to 35%.",
+    "Database timeout errors increased.",
+    "A deployment occurred four minutes before the incident."
+  ],
+  "possible_root_causes": [
+    {
+      "description": "Database connection handling issue",
+      "confidence": "medium",
+      "evidence": [
+        "Increased database timeout logs",
+        "Increased payment API latency",
+        "Recent deployment"
+      ]
+    }
+  ],
+  "status": "investigation_completed"
+}
+```
 
-   Initially, the agent should have tools to:
-   1. Search application logs.
-   2. Query service metrics.
-   3. Retrieve recent deployment history.
+| # | Area | Must do |
+|---|------|---------|
+| **9** | **Persist results** | On-demand or automated runs; track running/completed/failed; store and revisit history; human review of AI findings. |
+| **10** | **Evaluation harness** | Dataset of incidents with known causes; replay tests; measure accuracy and unsupported claims; catch regressions. |
 
-   Requirements:
+---
 
-   - Search logs by service, environment, time range, severity, and keywords.
-   - Fetch metrics for a chosen service and time range.
-   - List deployments within a time range.
-   - Return answers in a consistent, structured format.
-   - Enforce limits and timeouts so one investigation cannot overload storage or APIs.
+## Non-functional requirements
 
-8. **Investigate incidents using real operational data**.
+Quality bar for the platform (summarized; full IDs for traceability):
 
-   For a given incident, the system gathers evidence from logs, metrics, and deploy history, then summarizes findings without making things up.
+| Theme | IDs | Expectation |
+|-------|-----|-------------|
+| **Throughput & latency** | NFR-01, NFR-02, NFR-06 | High ingestion (e.g. 50k events/s target), p95 processing within ~2s for alert path, backpressure under spikes |
+| **Scale & resilience** | NFR-03, NFR-04, NFR-05, NFR-07 | Horizontal scale; durable queue; survive Kafka/ClickHouse/API blips; idempotent handling |
+| **Security & ops** | NFR-08, NFR-09 | OAuth2, RBAC, validation; metrics, logs, health, traces for OpsPilot itself |
+| **Engineering** | NFR-10, NFR-11, NFR-14, NFR-15 | Modular services; integrity of events and relationships; automated tests; Docker Compose deploy |
+| **AI quality** | NFR-12, NFR-13 | Root causes cite evidence; explicit “insufficient evidence” when needed |
 
-   Requirements:
-
-   - Start from a specific incident.
-   - Load incident context (service, time, severity, linked alerts).
-   - Search logs and query metrics that matter for that incident.
-   - Check whether a deployment happened shortly before symptoms started.
-   - Connect facts across sources (logs, metrics, deploys).
-   - Suggest possible root causes with stated confidence.
-   - Write an investigation summary that cites supporting evidence.
-   - Clearly separate what was observed from what is only a hypothesis.
-   - If evidence is missing, say so instead of inventing an explanation.
-
-   ```
-   {
-   "incident_id": "INC-1001",
-   "summary": "Payment API error rate increased significantly.",
-   "observations": [
-      "HTTP 5xx errors increased from 1% to 35%.",
-      "Database timeout errors increased.",
-      "A deployment occurred four minutes before the incident."
-   ],
-   "possible_root_causes": [
-      {
-         "description": "Database connection handling issue",
-         "confidence": "medium",
-         "evidence": [
-         "Increased database timeout logs",
-         "Increased payment API latency",
-         "Recent deployment"
-         ]
-       }
-   ],
-   "status": "investigation_completed"
-   }
-
-   ```
-
-9. **Attach investigation results to incidents**.
-
-   Investigations are part of the incident record, not one-off chat output.
-
-   Requirements:
-
-   - Start an investigation for an incident on demand or by workflow.
-   - Track whether an investigation is running, finished, or failed.
-   - Save results so they can be opened later.
-   - Let engineers retrieve past investigation runs for the same incident.
-   - Keep history when investigations are re-run.
-   - Let engineers review and validate AI-generated findings.
-
-10. **Measure how good the investigation agent is** (evaluation harness).
-
-    The project needs a repeatable way to score the AI against incidents whose causes are already known.
-
-   Requirements:
-
-   - Keep a dataset of incidents with known root causes.
-   - Re-run historical or synthetic incidents through the agent.
-   - Compare the agent’s conclusions to the expected causes.
-   - Measure accuracy and track wrong or unsupported claims.
-   - Detect regressions when the agent or its tools change.
-
-## non functional responsibility
+<details>
+<summary>Full NFR table (click to expand)</summary>
 
 | ID | Category | Requirement | Proposed acceptance criteria |
 |---|---|---|---|
@@ -254,21 +208,42 @@ Plain-language requirements for what the system must do. Technical terms (Kafka,
 | NFR-14 | Testability | Automated verification | Unit, integration, load, failure-injection, and AI evaluation tests. |
 | NFR-15 | Deployability | Reproducible deployment | Services should run using Docker Compose with documented configuration. |
 
+</details>
 
-## MVP
+---
 
-| Priority | Scope |
-|---|---|
-| P0 – Essential | Telemetry ingestion, Kafka publishing, ClickHouse storage, threshold-based alerting, incident creation, basic incident lifecycle, AI investigation, evidence-backed summary |
-| P1 – Important | OAuth2/RBAC, alert rule management APIs, retries, dead-letter handling, audit history, evaluation suite |
-| P2 – Advanced | 50k events/sec optimization, horizontal scaling, advanced failure recovery, MCP integration, advanced dashboards |
-| P3 – Stretch | Automated remediation, anomaly detection, multi-tenant isolation |
+## MVP priorities
 
-## requirements per service
+Build in layers—ship value early, harden later.
 
-| Component | Functional responsibility | Important NFRs |
-|---|---|---|
-| `opspilot-collector` | Receive, validate, batch, and publish telemetry | Throughput, concurrency, backpressure, reliability |
-| `opspilot-alert-engine` | Consume telemetry, evaluate rules, generate alerts | Low latency, idempotency, scalability, fault tolerance |
-| `opspilot-incident-api` | Manage incidents, users, teams, schedules, and audit history | Security, consistency, availability, maintainability |
-| `opspilot-investigation-agent` | Investigate incidents using logs, metrics, and deployments | Evidence quality, bounded execution, reliability, evaluation |
+| Priority | Build this |
+|----------|------------|
+| **P0 – Essential** | Ingestion → Kafka → ClickHouse, threshold alerts, incident creation & basic lifecycle, AI investigation with evidence-backed summary |
+| **P1 – Important** | OAuth2/RBAC, alert rule APIs, retries, DLQ, audit history, evaluation suite |
+| **P2 – Advanced** | 50k/s tuning, horizontal scaling, richer failure recovery, MCP, dashboards |
+| **P3 – Stretch** | Auto-remediation, anomaly detection, multi-tenant isolation |
+
+---
+
+## Services
+
+Four deployable components and how they map to the requirements:
+
+| Component | Role | Key NFRs |
+|-----------|------|----------|
+| **`opspilot-collector`** | Receive, validate, batch, publish telemetry | Throughput, concurrency, backpressure, reliability |
+| **`opspilot-alert-engine`** | Consume telemetry, evaluate rules, emit alerts | Low latency, idempotency, scale, fault tolerance |
+| **`opspilot-incident-api`** | Incidents, users, teams, schedules, audit | Security, consistency, availability |
+| **`opspilot-investigation-agent`** | Investigate using logs, metrics, deploys | Evidence quality, bounded execution, evaluation |
+
+Each service has its own `README.md` in its directory.
+
+---
+
+## More docs
+
+| Document | Purpose |
+|----------|---------|
+| [`documents/architecture.md`](documents/architecture.md) | System architecture |
+| [`documents/event-schema.md`](documents/event-schema.md) | Telemetry event format |
+| [`documents/api-contracts.md`](documents/api-contracts.md) | API contracts |
