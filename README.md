@@ -45,7 +45,7 @@ Let's define its responsibilities as five capabilities.
 *the AI should not simply generate a plausible explanation. It should investigate actual data and support its conclusions with evidence.*
 
 
-# functional responsibility
+## functional responsibility
 
 Plain-language requirements for what the system must do. Technical terms (Kafka, ClickHouse, OAuth2, and so on) name the chosen building blocks; the behavior below is what matters.
 
@@ -234,7 +234,7 @@ Plain-language requirements for what the system must do. Technical terms (Kafka,
    - Measure accuracy and track wrong or unsupported claims.
    - Detect regressions when the agent or its tools change.
 
-# non functional responsibility
+## non functional responsibility
 
 | ID | Category | Requirement | Proposed acceptance criteria |
 |---|---|---|---|
@@ -253,3 +253,22 @@ Plain-language requirements for what the system must do. Technical terms (Kafka,
 | NFR-13 | AI reliability | Avoid unsupported conclusions | Agent must explicitly report insufficient evidence when appropriate. |
 | NFR-14 | Testability | Automated verification | Unit, integration, load, failure-injection, and AI evaluation tests. |
 | NFR-15 | Deployability | Reproducible deployment | Services should run using Docker Compose with documented configuration. |
+
+
+## MVP
+
+| Priority | Scope |
+|---|---|
+| P0 – Essential | Telemetry ingestion, Kafka publishing, ClickHouse storage, threshold-based alerting, incident creation, basic incident lifecycle, AI investigation, evidence-backed summary |
+| P1 – Important | OAuth2/RBAC, alert rule management APIs, retries, dead-letter handling, audit history, evaluation suite |
+| P2 – Advanced | 50k events/sec optimization, horizontal scaling, advanced failure recovery, MCP integration, advanced dashboards |
+| P3 – Stretch | Automated remediation, anomaly detection, multi-tenant isolation |
+
+## requirements per service
+
+| Component | Functional responsibility | Important NFRs |
+|---|---|---|
+| `opspilot-collector` | Receive, validate, batch, and publish telemetry | Throughput, concurrency, backpressure, reliability |
+| `opspilot-alert-engine` | Consume telemetry, evaluate rules, generate alerts | Low latency, idempotency, scalability, fault tolerance |
+| `opspilot-incident-api` | Manage incidents, users, teams, schedules, and audit history | Security, consistency, availability, maintainability |
+| `opspilot-investigation-agent` | Investigate incidents using logs, metrics, and deployments | Evidence quality, bounded execution, reliability, evaluation |
