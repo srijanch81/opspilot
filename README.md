@@ -235,3 +235,21 @@ Plain-language requirements for what the system must do. Technical terms (Kafka,
    - Detect regressions when the agent or its tools change.
 
 # non functional responsibility
+
+| ID | Category | Requirement | Proposed acceptance criteria |
+|---|---|---|---|
+| NFR-01 | Performance | High-throughput ingestion | Target 50,000 events/sec on one machine under a defined benchmark workload. |
+| NFR-02 | Latency | Low-latency event processing | 95% of accepted events become available to the alert engine within 2 seconds. |
+| NFR-03 | Scalability | Horizontal scalability | Collector and alert engine should support multiple instances. |
+| NFR-04 | Reliability | No silent event loss | Accepted events must be durably queued or failures explicitly reported. |
+| NFR-05 | Fault tolerance | Handle component failures | Temporary Kafka, ClickHouse, or API failures must not crash the entire pipeline. |
+| NFR-06 | Backpressure | Handle traffic spikes | Bounded queues and controlled ingestion when downstream systems are slow. |
+| NFR-07 | Idempotency | Prevent duplicate processing effects | Replayed events should not create duplicate incidents. |
+| NFR-08 | Security | Protect APIs and data | OAuth2 authentication, RBAC, input validation, and secure service communication. |
+| NFR-09 | Observability | Monitor OpsPilot itself | Expose application metrics, structured logs, health checks, and distributed traces. |
+| NFR-10 | Maintainability | Modular architecture | Separate ingestion, alerting, incident management, and investigation responsibilities. |
+| NFR-11 | Data integrity | Preserve event correctness | Consistent event identifiers, timestamps, and incident relationships. |
+| NFR-12 | AI quality | Evidence-backed investigations | Every proposed root cause must reference retrieved evidence. |
+| NFR-13 | AI reliability | Avoid unsupported conclusions | Agent must explicitly report insufficient evidence when appropriate. |
+| NFR-14 | Testability | Automated verification | Unit, integration, load, failure-injection, and AI evaluation tests. |
+| NFR-15 | Deployability | Reproducible deployment | Services should run using Docker Compose with documented configuration. |
